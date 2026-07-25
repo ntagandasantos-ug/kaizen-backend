@@ -24,32 +24,44 @@ const ALLOWED_TYPES = {
 const MAX_BYTES = 500 * 1024 * 1024; // 500MB ceiling for a single video
 
 // Categories this endpoint accepts, and the storage folder each one gets.
-// 'audit'     -> audit photos/videos/reports (needs auditId)
-// 'committee' -> a committee member or auditor's headshot (needs entityId)
-// 'site'      -> the site logo / footer graphic (no entityId needed)
+// Storage (this file) is shared across categories, but WHERE each upload gets
+// recorded in the database differs — see each category's own route:
+// 'audit'     -> audit photos/videos/reports tied to a department+month
+//                (needs auditId) — recorded via THIS file's /confirm, into
+//                audit_media.
+// 'gallery'   -> general photos/videos/reports NOT tied to any department
+//                (no entityId) — recorded via POST /api/gallery/confirm,
+//                into the standalone gallery_media table.
+// 'committee' -> a committee member or auditor's headshot (needs entityId) —
+//                the frontend saves the returned URL itself via
+//                PATCH /api/committee/:id.
+// 'site'      -> the site logo / leadership photos (no entityId needed) —
+//                the frontend saves the returned URL itself via
+//                PATCH /api/settings.
 const CATEGORY_FOLDERS = {
   audit: (entityId) => `audits/${entityId}`,
+  gallery: () => `gallery`,
   committee: (entityId) => `committee/${entityId}`,
   site: () => `site`,
 };
 
 // Step 1: frontend asks for a signed upload URL. The file itself never
-// touches this server — it goes straight from the browser to R2/S3.
-// Works for audit media, committee/auditor photos, and the site logo.
+// touches this server — it goes straight from the browser to R2/S3. This
+// step is identical no matter which category the file belongs to.
 router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
   const { category = "audit", entityId, fileName, contentType, fileSizeBytes } = req.body;
 
   if (!CATEGORY_FOLDERS[category]) {
     return res.status(400).json({ error: `Unknown category: ${category}` });
   }
-  if (category !== "site" && !entityId) {
+  if (category !== "site" && category !== "gallery" && !entityId) {
     return res.status(400).json({ error: "entityId is required for this category." });
   }
   if (!ALLOWED_TYPES[contentType]) {
     return res.status(400).json({ error: `Unsupported file type: ${contentType}` });
   }
   // Logos and committee headshots are always images — enforce that even though
-  // the general ALLOWED_TYPES list also permits video/pdf for audit uploads.
+  // the general ALLOWED_TYPES list also permits video/pdf for audit/gallery uploads.
   if ((category === "site" || category === "committee") && ALLOWED_TYPES[contentType] !== "photo") {
     return res.status(400).json({ error: "Logo and profile photos must be an image file." });
   }
@@ -77,10 +89,12 @@ router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), async (
 });
 
 // Step 2: after the browser finishes the direct upload, it confirms here.
-// Only 'audit' category uploads get a permanent audit_media row (so they can
-// be listed per-audit and deleted individually). Committee photos and the
-// site logo are simpler — the frontend just takes the returned fileUrl and
-// saves it directly via PATCH /api/committee/:id or PATCH /api/settings.
+// Only 'audit' category uploads get recorded here, into audit_media.
+// 'gallery' uploads are confirmed via POST /api/gallery/confirm instead —
+// this endpoint just hands the URL back for those so the frontend can call
+// the right place. Committee photos and the site logo are simpler still —
+// the frontend saves the returned URL itself via PATCH /api/committee/:id
+// or PATCH /api/settings, no confirm step needed.
 router.post("/confirm", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
   const { category = "audit", auditId, key, fileUrl, fileType, fileSizeBytes } = req.body;
 
@@ -106,8 +120,9 @@ router.get("/audit/:auditId", async (req, res) => {
   res.json(rows);
 });
 
-// GET /api/media?year=2026 — powers the Gallery page with real uploaded
-// photos/videos/reports across every department and month, most recent first.
+// GET /api/media?year=2026 — department-scoped audit media only (photos tied
+// to a specific department's audit). For the general, department-independent
+// gallery, see GET /api/gallery instead.
 router.get("/", async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
   const { rows } = await pool.query(
