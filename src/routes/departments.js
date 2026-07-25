@@ -1,16 +1,17 @@
 const express = require("express");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
 // Public — anyone visiting the site can see the department list
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const { rows } = await pool.query("SELECT * FROM departments ORDER BY name");
   res.json(rows);
-});
+}));
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: "Department name required." });
   try {
@@ -23,9 +24,9 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
     if (err.code === "23505") return res.status(409).json({ error: "That department already exists." });
     throw err;
   }
-});
+}));
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { name } = req.body;
   const { rows } = await pool.query(
     "UPDATE departments SET name = $1 WHERE id = $2 RETURNING *",
@@ -33,12 +34,12 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: "Department not found." });
   res.json(rows[0]);
-});
+}));
 
 // Deleting cascades to that department's audits (see schema: ON DELETE CASCADE)
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   await pool.query("DELETE FROM departments WHERE id = $1", [req.params.id]);
   res.status(204).end();
-});
+}));
 
 module.exports = router;

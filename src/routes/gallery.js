@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const { S3Client, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
@@ -18,17 +19,17 @@ const s3 = new S3Client({
 // Public — anyone visiting the site can see the general gallery.
 // This is entirely separate from department audit photos: no department,
 // no month, just a free-form company gallery.
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     "SELECT * FROM gallery_media ORDER BY uploaded_at DESC LIMIT 200"
   );
   res.json(rows);
-});
+}));
 
 // Confirms a direct-to-storage upload (the signed URL itself comes from the
 // shared POST /api/media/upload-url with category='gallery') and records it
 // in the standalone gallery_media table.
-router.post("/confirm", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+router.post("/confirm", requireAuth, requireRole("auditor", "admin"), asyncHandler(async (req, res) => {
   const { key, fileUrl, fileType, fileSizeBytes, caption } = req.body;
   if (!key || !fileUrl || !fileType) {
     return res.status(400).json({ error: "key, fileUrl, and fileType are required." });
@@ -39,9 +40,9 @@ router.post("/confirm", requireAuth, requireRole("auditor", "admin"), async (req
     [fileUrl, key, fileType, caption || null, fileSizeBytes || null, req.user.sub]
   );
   res.status(201).json(rows[0]);
-});
+}));
 
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { rows } = await pool.query("SELECT * FROM gallery_media WHERE id = $1", [req.params.id]);
   const item = rows[0];
   if (!item) return res.status(404).json({ error: "Not found." });
@@ -49,6 +50,6 @@ router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   await s3.send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: item.file_key }));
   await pool.query("DELETE FROM gallery_media WHERE id = $1", [req.params.id]);
   res.status(204).end();
-});
+}));
 
 module.exports = router;

@@ -3,10 +3,11 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { pool } = require("../db");
 const { requireAuth } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
-router.post("/login", async (req, res) => {
+router.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password required." });
 
@@ -24,13 +25,13 @@ router.post("/login", async (req, res) => {
   );
 
   res.json({ token, user: { id: user.id, email: user.email, role: user.role, name: user.name } });
-});
+}));
 
 router.get("/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-router.post("/change-password", requireAuth, async (req, res) => {
+router.post("/change-password", requireAuth, asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!newPassword || newPassword.length < 8) {
     return res.status(400).json({ error: "New password must be at least 8 characters." });
@@ -44,6 +45,6 @@ router.post("/change-password", requireAuth, async (req, res) => {
   const hash = await bcrypt.hash(newPassword, 12);
   await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, user.id]);
   res.json({ success: true });
-});
+}));
 
 module.exports = router;

@@ -4,6 +4,7 @@ const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = re
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ const CATEGORY_FOLDERS = {
 // Step 1: frontend asks for a signed upload URL. The file itself never
 // touches this server — it goes straight from the browser to R2/S3. This
 // step is identical no matter which category the file belongs to.
-router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), asyncHandler(async (req, res) => {
   const { category = "audit", entityId, fileName, contentType, fileSizeBytes } = req.body;
 
   if (!CATEGORY_FOLDERS[category]) {
@@ -86,7 +87,7 @@ router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), async (
     fileUrl: `${process.env.S3_PUBLIC_BASE}/${key}`,
     fileType: ALLOWED_TYPES[contentType],
   });
-});
+}));
 
 // Step 2: after the browser finishes the direct upload, it confirms here.
 // Only 'audit' category uploads get recorded here, into audit_media.
@@ -95,7 +96,7 @@ router.post("/upload-url", requireAuth, requireRole("auditor", "admin"), async (
 // the right place. Committee photos and the site logo are simpler still —
 // the frontend saves the returned URL itself via PATCH /api/committee/:id
 // or PATCH /api/settings, no confirm step needed.
-router.post("/confirm", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+router.post("/confirm", requireAuth, requireRole("auditor", "admin"), asyncHandler(async (req, res) => {
   const { category = "audit", auditId, key, fileUrl, fileType, fileSizeBytes } = req.body;
 
   if (category !== "audit") {
@@ -109,21 +110,21 @@ router.post("/confirm", requireAuth, requireRole("auditor", "admin"), async (req
     [auditId, fileUrl, key, fileType, fileSizeBytes || null, req.user.sub]
   );
   res.status(201).json(rows[0]);
-});
+}));
 
 // List media for a given audit (public — visitors should be able to see photos)
-router.get("/audit/:auditId", async (req, res) => {
+router.get("/audit/:auditId", asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     "SELECT * FROM audit_media WHERE audit_id = $1 ORDER BY uploaded_at DESC",
     [req.params.auditId]
   );
   res.json(rows);
-});
+}));
 
 // GET /api/media?year=2026 — department-scoped audit media only (photos tied
 // to a specific department's audit). For the general, department-independent
 // gallery, see GET /api/gallery instead.
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
   const { rows } = await pool.query(
     `SELECT m.*, a.month, d.name AS department
@@ -136,12 +137,12 @@ router.get("/", async (req, res) => {
     [`${year}-01-01`, `${Number(year) + 1}-01-01`]
   );
   res.json(rows);
-});
+}));
 
 // Generate a short-lived signed URL to view/download a private file.
 // (Skip this endpoint entirely if your bucket is public — then file_url
 // works directly and this becomes unnecessary.)
-router.get("/:id/view-url", async (req, res) => {
+router.get("/:id/view-url", asyncHandler(async (req, res) => {
   const { rows } = await pool.query("SELECT * FROM audit_media WHERE id = $1", [req.params.id]);
   const media = rows[0];
   if (!media) return res.status(404).json({ error: "Not found." });
@@ -149,9 +150,9 @@ router.get("/:id/view-url", async (req, res) => {
   const command = new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: media.file_key });
   const url = await getSignedUrl(s3, command, { expiresIn: 900 }); // 15 minutes
   res.json({ url });
-});
+}));
 
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { rows } = await pool.query("SELECT * FROM audit_media WHERE id = $1", [req.params.id]);
   const media = rows[0];
   if (!media) return res.status(404).json({ error: "Not found." });
@@ -159,6 +160,6 @@ router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   await s3.send(new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: media.file_key }));
   await pool.query("DELETE FROM audit_media WHERE id = $1", [req.params.id]);
   res.status(204).end();
-});
+}));
 
 module.exports = router;

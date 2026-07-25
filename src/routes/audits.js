@@ -1,11 +1,12 @@
 const express = require("express");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
 // GET /api/audits?year=2026&department=<uuid> — public read
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const { year = new Date().getFullYear(), department } = req.query;
   const params = [`${year}-01-01`, `${Number(year) + 1}-01-01`];
   let query = `
@@ -18,10 +19,10 @@ router.get("/", async (req, res) => {
   query += " ORDER BY a.month, d.name";
   const { rows } = await pool.query(query, params);
   res.json(rows);
-});
+}));
 
 // GET /api/audits/rankings?year=2026 — replaces client-side computeStandings()
-router.get("/rankings", async (req, res) => {
+router.get("/rankings", asyncHandler(async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
   const { rows } = await pool.query(
     `SELECT d.id, d.name AS department,
@@ -36,10 +37,10 @@ router.get("/rankings", async (req, res) => {
     [`${year}-01-01`, `${Number(year) + 1}-01-01`]
   );
   res.json(rows);
-});
+}));
 
 // GET /api/audits/monthly-winners?year=2026
-router.get("/monthly-winners", async (req, res) => {
+router.get("/monthly-winners", asyncHandler(async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
   const { rows } = await pool.query(
     `SELECT DISTINCT ON (a.month) a.month, d.name AS department, a.score
@@ -50,12 +51,12 @@ router.get("/monthly-winners", async (req, res) => {
     [`${year}-01-01`, `${Number(year) + 1}-01-01`]
   );
   res.json(rows);
-});
+}));
 
 // GET /api/audits/current-winner-media — powers the homepage photo marquee.
 // Finds the highest-scoring department for the most recently scored month,
 // and returns that department's uploaded photos/videos for display.
-router.get("/current-winner-media", async (req, res) => {
+router.get("/current-winner-media", asyncHandler(async (req, res) => {
   const { rows: winnerRows } = await pool.query(
     `SELECT a.id AS audit_id, a.month, a.score, d.name AS department
      FROM audits a
@@ -72,13 +73,13 @@ router.get("/current-winner-media", async (req, res) => {
     [winner.audit_id]
   );
   res.json({ winner, media });
-});
+}));
 
 // POST /api/audits/ensure — gets or creates an audit row for a department+month
 // WITHOUT requiring a score. This exists so photos/videos/reports can be
 // uploaded before an audit has been scored — uploading evidence often happens
 // before the final number is entered, not after.
-router.post("/ensure", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+router.post("/ensure", requireAuth, requireRole("auditor", "admin"), asyncHandler(async (req, res) => {
   const { department_id, month } = req.body;
   if (!department_id || !month) {
     return res.status(400).json({ error: "department_id and month are required." });
@@ -90,11 +91,11 @@ router.post("/ensure", requireAuth, requireRole("auditor", "admin"), async (req,
     [department_id, month]
   );
   res.json(rows[0]);
-});
+}));
 
 // Auditors and admins can submit/update a score for a department+month.
 // UPSERT keeps this idempotent — re-submitting the same month updates it.
-router.put("/", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+router.put("/", requireAuth, requireRole("auditor", "admin"), asyncHandler(async (req, res) => {
   const {
     department_id, month, score, sort_score, set_in_order_score,
     shine_score, standardize_score, sustain_score, safety_score, notes,
@@ -127,6 +128,6 @@ router.put("/", requireAuth, requireRole("auditor", "admin"), async (req, res) =
   );
 
   res.json(rows[0]);
-});
+}));
 
 module.exports = router;

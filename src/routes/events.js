@@ -1,10 +1,11 @@
 const express = require("express");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const { from, to } = req.query;
   const params = [];
   let query = "SELECT * FROM events";
@@ -12,9 +13,9 @@ router.get("/", async (req, res) => {
   query += " ORDER BY event_date";
   const { rows } = await pool.query(query, params);
   res.json(rows);
-});
+}));
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { title, event_date, end_date, event_type, department_ids, auditor_id } = req.body;
   if (!title || !event_date) {
     return res.status(400).json({ error: "title and event_date are required." });
@@ -28,9 +29,9 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
     [title, event_date, end_date || null, event_type, department_ids || [], auditor_id || null]
   );
   res.status(201).json(rows[0]);
-});
+}));
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { title, event_date, end_date, event_type, department_ids, auditor_id } = req.body;
   if (end_date && event_date && end_date < event_date) {
     return res.status(400).json({ error: "End date can't be before the start date." });
@@ -45,11 +46,11 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: "Event not found." });
   res.json(rows[0]);
-});
+}));
 
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   await pool.query("DELETE FROM events WHERE id = $1", [req.params.id]);
   res.status(204).end();
-});
+}));
 
 module.exports = router;

@@ -1,17 +1,18 @@
 const express = require("express");
 const { pool } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../utils");
 
 const router = express.Router();
 
 // Sorted by sort_order (the hierarchy position admins set), falling back to
 // name for any members that share the same order value.
-router.get("/", async (req, res) => {
+router.get("/", asyncHandler(async (req, res) => {
   const { rows } = await pool.query("SELECT * FROM committee_members ORDER BY sort_order ASC, name ASC");
   res.json(rows);
-});
+}));
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { name, role, photo_url, is_lead, attached_departments, sort_order } = req.body;
 
   // New members default to the bottom of the hierarchy unless a position is given.
@@ -27,9 +28,9 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
     [name, role, photo_url || null, !!is_lead, attached_departments || [], position]
   );
   res.status(201).json(rows[0]);
-});
+}));
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { name, role, photo_url, is_lead, attached_departments, sort_order } = req.body;
   const { rows } = await pool.query(
     `UPDATE committee_members
@@ -42,11 +43,11 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: "Committee member not found." });
   res.json(rows[0]);
-});
+}));
 
 // Bulk reorder: accepts [{ id, sort_order }, ...] and applies them all in one
 // go — used when an admin drags/moves a member up or down the hierarchy.
-router.post("/reorder", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/reorder", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   const { order } = req.body; // [{ id, sort_order }, ...]
   if (!Array.isArray(order)) return res.status(400).json({ error: "order must be an array of { id, sort_order }." });
 
@@ -66,11 +67,11 @@ router.post("/reorder", requireAuth, requireRole("admin"), async (req, res) => {
 
   const { rows } = await pool.query("SELECT * FROM committee_members ORDER BY sort_order ASC, name ASC");
   res.json(rows);
-});
+}));
 
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("admin"), asyncHandler(async (req, res) => {
   await pool.query("DELETE FROM committee_members WHERE id = $1", [req.params.id]);
   res.status(204).end();
-});
+}));
 
 module.exports = router;
