@@ -9,6 +9,7 @@ const auditRoutes = require("./routes/audits");
 const eventRoutes = require("./routes/events");
 const mediaRoutes = require("./routes/media");
 const settingsRoutes = require("./routes/settings");
+const galleryRoutes = require("./routes/gallery");
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use("/api/audits", auditRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/gallery", galleryRoutes);
 
 // Central error handler — keeps stack traces out of API responses
 app.use((err, req, res, next) => {
