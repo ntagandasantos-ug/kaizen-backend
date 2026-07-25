@@ -74,6 +74,24 @@ router.get("/current-winner-media", async (req, res) => {
   res.json({ winner, media });
 });
 
+// POST /api/audits/ensure — gets or creates an audit row for a department+month
+// WITHOUT requiring a score. This exists so photos/videos/reports can be
+// uploaded before an audit has been scored — uploading evidence often happens
+// before the final number is entered, not after.
+router.post("/ensure", requireAuth, requireRole("auditor", "admin"), async (req, res) => {
+  const { department_id, month } = req.body;
+  if (!department_id || !month) {
+    return res.status(400).json({ error: "department_id and month are required." });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO audits (department_id, month) VALUES ($1, $2)
+     ON CONFLICT (department_id, month) DO UPDATE SET department_id = EXCLUDED.department_id
+     RETURNING *`,
+    [department_id, month]
+  );
+  res.json(rows[0]);
+});
+
 // Auditors and admins can submit/update a score for a department+month.
 // UPSERT keeps this idempotent — re-submitting the same month updates it.
 router.put("/", requireAuth, requireRole("auditor", "admin"), async (req, res) => {

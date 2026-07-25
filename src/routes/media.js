@@ -106,6 +106,23 @@ router.get("/audit/:auditId", async (req, res) => {
   res.json(rows);
 });
 
+// GET /api/media?year=2026 — powers the Gallery page with real uploaded
+// photos/videos/reports across every department and month, most recent first.
+router.get("/", async (req, res) => {
+  const year = req.query.year || new Date().getFullYear();
+  const { rows } = await pool.query(
+    `SELECT m.*, a.month, d.name AS department
+     FROM audit_media m
+     JOIN audits a ON a.id = m.audit_id
+     JOIN departments d ON d.id = a.department_id
+     WHERE a.month >= $1 AND a.month < $2
+     ORDER BY m.uploaded_at DESC
+     LIMIT 100`,
+    [`${year}-01-01`, `${Number(year) + 1}-01-01`]
+  );
+  res.json(rows);
+});
+
 // Generate a short-lived signed URL to view/download a private file.
 // (Skip this endpoint entirely if your bucket is public — then file_url
 // works directly and this becomes unnecessary.)
