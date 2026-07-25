@@ -61,12 +61,17 @@ CREATE TABLE IF NOT EXISTS audit_media (
 CREATE TABLE IF NOT EXISTS events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
-  event_date DATE NOT NULL,
+  event_date DATE NOT NULL,       -- start date
+  end_date DATE,                  -- optional end date, for multi-day events (defaults to event_date if not set)
   event_type TEXT CHECK (event_type IN ('Audit', 'Ceremony', 'Activity')),
   department_ids UUID[] DEFAULT '{}',
   auditor_id UUID REFERENCES committee_members(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Adds end_date to a database that already had the events table created
+-- before this column existed. Safe to run repeatedly.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date DATE;
 
 CREATE TABLE IF NOT EXISTS site_settings (
   key TEXT PRIMARY KEY,
@@ -87,3 +92,34 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audits_department_month ON audits(department_id, month);
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
+
+-- ============================================================================
+-- Additive changes below. Each statement is safe to re-run against a database
+-- that already has data — ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT
+-- EXISTS never touch existing rows or drop anything.
+-- ============================================================================
+
+-- Committee hierarchy ordering: lets admins arrange members in a specific
+-- order (Patron, Chairperson, Secretary, ...) instead of alphabetically.
+-- Lower sort_order shows first.
+ALTER TABLE committee_members ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_committee_sort_order ON committee_members(sort_order);
+
+-- Event date ranges: an event can span from event_date to end_date. When
+-- end_date is null, it's treated as a single-day event equal to event_date.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date DATE;
+
+-- Independent gallery: general photos/videos/reports that aren't tied to a
+-- specific department's audit — a free-form company gallery, separate from
+-- the department-scoped audit_media table.
+CREATE TABLE IF NOT EXISTS gallery_media (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  file_url TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_type TEXT CHECK (file_type IN ('photo', 'video', 'report')),
+  caption TEXT,
+  file_size_bytes BIGINT,
+  uploaded_by UUID REFERENCES users(id),
+  uploaded_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_gallery_media_uploaded_at ON gallery_media(uploaded_at DESC);
